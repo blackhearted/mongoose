@@ -5286,7 +5286,11 @@ static void close_local_endpoint(struct connection *conn) {
   switch (conn->endpoint_type) {
     case EP_PUT:
     case EP_FILE:
+#ifdef WINCE
       fclose(conn->endpoint.fd);
+#else
+	  close(conn->endpoint.fd);
+#endif
       break;
     case EP_CGI:
     case EP_PROXY:
