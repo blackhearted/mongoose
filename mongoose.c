@@ -53,801 +53,828 @@
 #define _FILE_OFFSET_BITS 64    // Enable 64-bit file offsets
 
 #ifdef _MSC_VER
-#pragma warning (disable : 4127)  // FD_SET() emits warning, disable it
-#pragma warning (disable : 4204)  // missing c99 support
+	#pragma warning (disable : 4127)  // FD_SET() emits warning, disable it
+	#pragma warning (disable : 4204)  // missing c99 support
 #endif
 
 #ifndef _WIN32_WCE // Some ANSI #includes are not available on Windows CE
-#include <sys/types.h>
-#include <sys/stat.h>
+	#include <sys/types.h>
+	#include <sys/stat.h>
 #else
-#include "stat.h"
+	#include "stat.h"
+	#endif // !_WIN32_WCE
+	#include <assert.h>
+	#ifndef _WIN32_WCE // Some ANSI #includes are not available on Windows CE
+	#include <errno.h>
+	#include <fcntl.h>
+	#endif // !_WIN32_WCE
+	#include <stdarg.h>
+	#include <stddef.h>
+	#include <stdio.h>
+	#include <stdlib.h>
+	#include <string.h>
+	#include <time.h>
+	#ifndef _WIN32_WCE // Some ANSI #includes are not available on Windows CE
+	#include <signal.h>
 #endif // !_WIN32_WCE
-#include <assert.h>
-#ifndef _WIN32_WCE // Some ANSI #includes are not available on Windows CE
-#include <errno.h>
-#include <fcntl.h>
-#endif // !_WIN32_WCE
-#include <stdarg.h>
-#include <stddef.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#ifndef _WIN32_WCE // Some ANSI #includes are not available on Windows CE
-#include <signal.h>
-#endif // !_WIN32_WCE
+
+#ifdef WINCE
+	#include <windows.h>
+	#include <time.h>
+
+
+	#define EINTR           4
+	#define EAGAIN          11
+
+	#define NO_CGI // WinCE has no pipes
+
+	typedef long off_t;
+
+	#define errno   GetLastError()
+	#define strerror(x)  _ultoa(x, (char *) _alloca(sizeof(x) *3 ), 10)
+
+	#define MAKEUQUAD(lo, hi) ((uint64_t)(((uint32_t)(lo)) | \
+		  ((uint64_t)((uint32_t)(hi))) << 32))
+	#define RATE_DIFF 10000000 // 100 nsecs
+	#define EPOCH_DIFF MAKEUQUAD(0xd53e8000, 0x019db1de)
+	#define SYS2UNIX_TIME(lo, hi) \
+	  (time_t) ((MAKEUQUAD((lo), (hi)) - EPOCH_DIFF) / RATE_DIFF)	
+
+	#define wince__onesec_in100ns 10000000LL
+	#define WINCE__DELTA_EPOCH 116444736000000000LL
+	#define WINCE__CRT_INLINE 
+
+	#define IN_NONE	0
+	#define IN_SOME	1
+	#define IN_THIS	2
+	#define IN_ALL	3
+	#define CHAR_BIT      8
+
+	#define TYPE_BIT(type)	(sizeof (type) * CHAR_BIT)
+	#define TYPE_SIGNED(type) (((type) -1) < 0)
+
+	#define INT_STRLEN_MAXIMUM(type) \
+		((TYPE_BIT(type) - TYPE_SIGNED(type)) * 302 / 1000 + 1 + TYPE_SIGNED(type))
+
+	#define wince__isleap(y) (((y) % 4) == 0 && (((y) % 100) != 0 || ((y) % 400) == 0))
+
+	#define MONSPERYEAR	12
+	#define DAYSPERWEEK	7
+	#define TM_YEAR_BASE	1900
+	#define HOURSPERDAY	24
+	#define DAYSPERNYEAR	365
+	#define DAYSPERLYEAR	366
+
+	static char wildabbr[] = "WILDABBR";
+
+	static char *tzname[2] = 
+	{
+	  wildabbr,
+	  wildabbr
+	};
+
+	#define Locale	(&C_time_locale)
+
+	WINCE__CRT_INLINE long long
+	wince__FILETIME_to_ll (const FILETIME *f)
+	{
+	  long long t;
+	  t = (long long)f->dwHighDateTime << 32;
+	  t |= f->dwLowDateTime;
+	  return t;
+	}
+
+
+	WINCE__CRT_INLINE void
+	wince__ll_to_FILETIME (long long t, FILETIME* f)
+	{
+	  f->dwHighDateTime = (DWORD)((t >> 32) & 0x00000000FFFFFFFF);
+	  f->dwLowDateTime = (DWORD)(t & 0x00000000FFFFFFFF);
+	}
+
+	struct wince__lc_time_T
+	{
+	  const char *mon[MONSPERYEAR];
+	  const char *month[MONSPERYEAR];
+	  const char *wday[DAYSPERWEEK];
+	  const char *weekday[DAYSPERWEEK];
+	  const char *X_fmt;
+	  const char *x_fmt;
+	  const char *c_fmt;
+	  const char *am;
+	  const char *pm;
+	  const char *date_fmt;
+	};
+
+	static const struct wince__lc_time_T C_time_locale = {
+	  {
+	   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+	   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+	  }, {
+	   "January", "February", "March", "April", "May", "June",
+	   "July", "August", "September", "October", "November", "December"
+	  }, {
+	   "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
+	  }, {
+	   "Sunday", "Monday", "Tuesday", "Wednesday", 
+	   "Thursday", "Friday", "Saturday"
+	  },
+
+	  /* X_fmt */
+	  "%H:%M:%S",
+
+	  /*
+	   ** x_fmt
+	   ** C99 requires this format.
+	   ** Using just numbers (as here) makes Quakers happier;
+	   ** it's also compatible with SVR4.
+	   */
+	  "%m/%d/%y",
+
+	  /*
+	   ** c_fmt
+	   ** C99 requires this format.
+	   ** Previously this code used "%D %X", but we now conform to C99.
+	   ** Note that
+	   **      "%a %b %d %H:%M:%S %Y"
+	   ** is used by Solaris 2.3.
+	   */
+	  "%a %b %e %T %Y",
+
+	  /* am */
+	  "AM",
+
+	  /* pm */
+	  "PM",
+
+	  /* date_fmt */
+	  "%a %b %e %H:%M:%S %Z %Y"
+	};
+
+
+	static char *
+	wince__add (const char *str, char *pt, const char *const ptlim)
+	{
+	  while (pt < ptlim && (*pt = *str++) != '\0')
+		++pt;
+	  return pt;
+	}
+
+
+	static char *
+	wince__conv (const int n, const char *const format, char *const pt,
+		   const char *const ptlim)
+	{
+	  char buf[INT_STRLEN_MAXIMUM (int) + 1];
+
+	  (void) _snprintf (buf, sizeof (buf), format, n);
+	  return wince__add (buf, pt, ptlim);
+	}
+
+
+	#define O_RDONLY       0x0000  /* open for reading only */
+	#define O_WRONLY       0x0001  /* open for writing only */
+	#define O_RDWR         0x0002  /* open for reading and writing */
+	#define O_APPEND       0x0008  /* writes done at eof */
+
+
+	time_t wince__ftToTime_t( const FILETIME ft )
+	{
+		ULARGE_INTEGER li;
+		li.LowPart  = ft.dwLowDateTime;
+		li.HighPart = ft.dwHighDateTime;
+	 
+		// 100-nanosec to seconds
+		li.QuadPart /= 10000000;
+	 
+		// FILETIME is from 1601-01-01 T 00:00:00
+		// time_t   is from 1970-01-01 T 00:00:00
+		// 1970 - 1601 = 369 year (89 leap years)
+		//
+		// ((369y*365d) + 89d) *24h *60min *60sec
+		// = 11644473600 seconds
+		li.QuadPart -= 11644473600;
+		return li.LowPart;
+	}
+	int wince__fstat( const wchar_t * _Name, struct stat *buffer)
+	{
+	   BY_HANDLE_FILE_INFORMATION fInfo;
+	   BOOL res;
+
+	   HANDLE handle = CreateFileW(_Name, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS, NULL);
+	   if(handle == INVALID_HANDLE_VALUE)
+	   {
+		  DWORD errNr = GetLastError();
+		  return 1;
+	   }
+	   
+	   res = GetFileInformationByHandle((HANDLE)handle, &fInfo);
+	   CloseHandle(handle);
+
+	   buffer->st_ctime = wince__ftToTime_t( fInfo.ftCreationTime );
+	   buffer->st_atime = wince__ftToTime_t( fInfo.ftLastAccessTime );
+	   buffer->st_mtime = wince__ftToTime_t( fInfo.ftLastWriteTime );
+	   buffer->st_nlink = 0;
+	   buffer->st_size  = fInfo.nFileSizeLow; // ### missing high!
+	   buffer->st_mode  = (fInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? _S_IFDIR : _S_IFREG;
+	   buffer->st_mode |= (fInfo.dwFileAttributes & FILE_ATTRIBUTE_READONLY) ? O_RDONLY : O_RDWR;
+	   
+	   return res == 0;
+	}
+
+	void
+	wince__tm_to_SYSTEMTIME (struct tm *t, SYSTEMTIME *s)
+	{
+	  s->wYear = t->tm_year + 1900;
+	  s->wMonth = t->tm_mon  + 1;
+	  s->wDayOfWeek = t->tm_wday;
+	  s->wDay = t->tm_mday;
+	  s->wHour = t->tm_hour;
+	  s->wMinute = t->tm_min;
+	  s->wSecond = t->tm_sec;
+	  s->wMilliseconds = 0;
+	}
+
+	static void
+	wince__FILETIME_from_Year (WORD year, FILETIME *f)
+	{
+	  SYSTEMTIME s = {0};
+
+	  s.wYear = year;
+	  s.wMonth = 1;
+	  s.wDayOfWeek = 1;
+	  s.wDay = 1;
+
+	  SystemTimeToFileTime (&s, f);
+	}
+
+	static int
+	wince__Yday_from_SYSTEMTIME (const SYSTEMTIME *s)
+	{
+	  long long t;
+	  FILETIME f1, f2;
+
+	  wince__FILETIME_from_Year (s->wYear, &f1);
+	  SystemTimeToFileTime (s, &f2);
+
+	  t = wince__FILETIME_to_ll (&f2) - wince__FILETIME_to_ll (&f1);
+
+	  return ((t / wince__onesec_in100ns) / (60 * 60 * 24));
+	}
+
+	void
+	wince__SYSTEMTIME_to_tm (SYSTEMTIME *s, struct tm *tm)
+	{
+	  tm->tm_year = s->wYear - 1900;
+	  tm->tm_mon = s->wMonth- 1;
+	  tm->tm_wday = s->wDayOfWeek;
+	  tm->tm_mday = s->wDay;
+	  tm->tm_yday = wince__Yday_from_SYSTEMTIME (s);
+	  tm->tm_hour = s->wHour;
+	  tm->tm_min = s->wMinute;
+	  tm->tm_sec = s->wSecond;
+	  tm->tm_isdst = 0;
+	}
+
+	time_t
+	wince__FILETIME_to_time_t (const FILETIME* f)
+	{
+	  long long t;
+	  t = wince__FILETIME_to_ll (f);
+	  t -= WINCE__DELTA_EPOCH;
+	  return (time_t)(t / wince__onesec_in100ns);
+	}
+
+	void
+	wince__time_t_to_FILETIME (time_t t, FILETIME *f)
+	{
+	  long long time;
+
+	  time = t;
+	  time *= wince__onesec_in100ns;
+	  time += WINCE__DELTA_EPOCH;
+
+	  wince__ll_to_FILETIME (time, f);
+	}
+
+	time_t
+	wince__mktime (struct tm *pt)
+	{
+	  SYSTEMTIME ss, ls, s;
+	  FILETIME sf, lf, f;
+	  long long diff;
+
+	  GetSystemTime (&ss);
+	  GetLocalTime (&ls);
+	  SystemTimeToFileTime (&ss, &sf);
+	  SystemTimeToFileTime (&ls, &lf);
+
+	  diff = wince__FILETIME_to_ll (&lf) - wince__FILETIME_to_ll (&sf);
+	  diff /= wince__onesec_in100ns;
+
+	  wince__tm_to_SYSTEMTIME (pt, &s);
+	  SystemTimeToFileTime (&s, &f);
+	  return wince__FILETIME_to_time_t (&f) - (time_t)diff;
+	}
+
+	struct tm *
+	wince__localtime(const time_t *timer)
+	{
+	  SYSTEMTIME ss, ls, s;
+	  FILETIME sf, lf, f;
+	  long long t, diff;
+
+	  static struct tm tms;
+
+	  GetSystemTime (&ss);
+	  GetLocalTime (&ls);
+
+	  SystemTimeToFileTime (&ss, &sf);
+	  SystemTimeToFileTime (&ls, &lf);
+
+	  diff = wince__FILETIME_to_ll (&sf) - wince__FILETIME_to_ll (&lf);
+
+	  wince__time_t_to_FILETIME (*timer, &f);
+	  t = wince__FILETIME_to_ll (&f) - diff;
+	  wince__ll_to_FILETIME (t, &f);
+	  FileTimeToSystemTime (&f, &s);
+	  wince__SYSTEMTIME_to_tm (&s, &tms);
+
+	  return &tms;
+	}
+
+	static char *
+	wince__fmt (const char *format, const struct tm *const t, char *pt,
+		  const char *const ptlim, int *warnp)
+	{
+	  for (; *format; ++format)
+		{
+		  if (*format == '%')
+			{
+			label:
+			  switch (*++format)
+				{
+				case '\0':
+				  --format;
+				  break;
+				case 'A':
+				  pt = wince__add ((t->tm_wday < 0 ||
+							  t->tm_wday >= DAYSPERWEEK) ?
+							 "?" : Locale->weekday[t->tm_wday], pt, ptlim);
+				  continue;
+				case 'a':
+				  pt = wince__add ((t->tm_wday < 0 ||
+							  t->tm_wday >= DAYSPERWEEK) ?
+							 "?" : Locale->wday[t->tm_wday], pt, ptlim);
+				  continue;
+				case 'B':
+				  pt = wince__add ((t->tm_mon < 0 ||
+							  t->tm_mon >= MONSPERYEAR) ?
+							 "?" : Locale->month[t->tm_mon], pt, ptlim);
+				  continue;
+				case 'b':
+				case 'h':
+				  pt = wince__add ((t->tm_mon < 0 ||
+							  t->tm_mon >= MONSPERYEAR) ?
+							 "?" : Locale->mon[t->tm_mon], pt, ptlim);
+				  continue;
+				case 'C':
+				  /*
+				   ** %C used to do a...
+				   **     wince__fmt("%a %b %e %X %Y", t);
+				   ** ...whereas now POSIX 1003.2 calls for
+				   ** something completely different.
+				   ** (ado, 1993-05-24)
+				   */
+				  pt = wince__conv ((t->tm_year + TM_YEAR_BASE) / 100,
+							  "%02d", pt, ptlim);
+				  continue;
+				case 'c':
+				  {
+					int warn2 = IN_SOME;
+
+					pt = wince__fmt (Locale->c_fmt, t, pt, ptlim, warnp);
+					if (warn2 == IN_ALL)
+					  warn2 = IN_THIS;
+					if (warn2 > *warnp)
+					  *warnp = warn2;
+				  }
+				  continue;
+				case 'D':
+				  pt = wince__fmt ("%m/%d/%y", t, pt, ptlim, warnp);
+				  continue;
+				case 'd':
+				  pt = wince__conv (t->tm_mday, "%02d", pt, ptlim);
+				  continue;
+				case 'E':
+				case 'O':
+				  /*
+				   ** C99 locale modifiers.
+				   ** The sequences
+				   **     %Ec %EC %Ex %EX %Ey %EY
+				   **     %Od %oe %OH %OI %Om %OM
+				   **     %OS %Ou %OU %OV %Ow %OW %Oy
+				   ** are supposed to provide alternate
+				   ** representations.
+				   */
+				  goto label;
+				case 'e':
+				  pt = wince__conv (t->tm_mday, "%2d", pt, ptlim);
+				  continue;
+				case 'F':
+				  pt = wince__fmt ("%Y-%m-%d", t, pt, ptlim, warnp);
+				  continue;
+				case 'H':
+				  pt = wince__conv (t->tm_hour, "%02d", pt, ptlim);
+				  continue;
+				case 'I':
+				  pt = wince__conv ((t->tm_hour % 12) ?
+							  (t->tm_hour % 12) : 12, "%02d", pt, ptlim);
+				  continue;
+				case 'j':
+				  pt = wince__conv (t->tm_yday + 1, "%03d", pt, ptlim);
+				  continue;
+				case 'k':
+				  /*
+				   ** This used to be...
+				   **     wince__conv(t->tm_hour % 12 ?
+				   **             t->tm_hour % 12 : 12, 2, ' ');
+				   ** ...and has been changed to the below to
+				   ** match SunOS 4.1.1 and Arnold Robbins'
+				   ** strftime version 3.0.  That is, "%k" and
+				   ** "%l" have been swapped.
+				   ** (ado, 1993-05-24)
+				   */
+				  pt = wince__conv (t->tm_hour, "%2d", pt, ptlim);
+				  continue;
+	#ifdef KITCHEN_SINK
+				case 'K':
+				  /*
+				   ** After all this time, still unclaimed!
+				   */
+				  pt = wince__add ("kitchen sink", pt, ptlim);
+				  continue;
+	#endif /* defined KITCHEN_SINK */
+				case 'l':
+				  /*
+				   ** This used to be...
+				   **     wince__conv(t->tm_hour, 2, ' ');
+				   ** ...and has been changed to the below to
+				   ** match SunOS 4.1.1 and Arnold Robbin's
+				   ** strftime version 3.0.  That is, "%k" and
+				   ** "%l" have been swapped.
+				   ** (ado, 1993-05-24)
+				   */
+				  pt = wince__conv ((t->tm_hour % 12) ?
+							  (t->tm_hour % 12) : 12, "%2d", pt, ptlim);
+				  continue;
+				case 'M':
+				  pt = wince__conv (t->tm_min, "%02d", pt, ptlim);
+				  continue;
+				case 'm':
+				  pt = wince__conv (t->tm_mon + 1, "%02d", pt, ptlim);
+				  continue;
+				case 'n':
+				  pt = wince__add ("\n", pt, ptlim);
+				  continue;
+				case 'p':
+				  pt = wince__add ((t->tm_hour >= (HOURSPERDAY / 2)) ?
+							 Locale->pm : Locale->am, pt, ptlim);
+				  continue;
+				case 'R':
+				  pt = wince__fmt ("%H:%M", t, pt, ptlim, warnp);
+				  continue;
+				case 'r':
+				  pt = wince__fmt ("%I:%M:%S %p", t, pt, ptlim, warnp);
+				  continue;
+				case 'S':
+				  pt = wince__conv (t->tm_sec, "%02d", pt, ptlim);
+				  continue;
+				case 's':
+				  {
+					struct tm tm;
+					char buf[INT_STRLEN_MAXIMUM (time_t) + 1];
+					time_t mkt;
+
+					tm = *t;
+
+					mkt = wince__mktime (&tm);				 
+
+					if (TYPE_SIGNED (time_t))
+					  (void) _snprintf (buf, sizeof buf, "%ld", (long) mkt);
+					else
+					  (void) _snprintf (buf, sizeof buf,
+										"%lu", (unsigned long) mkt);
+					pt = wince__add (buf, pt, ptlim);
+				  }
+				  continue;
+				case 'T':
+				  pt = wince__fmt ("%H:%M:%S", t, pt, ptlim, warnp);
+				  continue;
+				case 't':
+				  pt = wince__add ("\t", pt, ptlim);
+				  continue;
+				case 'U':
+				  pt = wince__conv ((t->tm_yday + DAYSPERWEEK -
+							   t->tm_wday) / DAYSPERWEEK, "%02d", pt, ptlim);
+				  continue;
+				case 'u':
+				  /*
+				   ** From Arnold Robbins' strftime version 3.0:
+				   ** "ISO 8601: Weekday as a decimal number
+				   ** [1 (Monday) - 7]"
+				   ** (ado, 1993-05-24)
+				   */
+				  pt = wince__conv ((t->tm_wday == 0) ?
+							  DAYSPERWEEK : t->tm_wday, "%d", pt, ptlim);
+				  continue;
+				case 'V':          /* ISO 8601 week number */
+				case 'G':          /* ISO 8601 year (four digits) */
+				case 'g':          /* ISO 8601 year (two digits) */
+				  {
+					int year;
+					int yday;
+					int wday;
+					int w;
+
+					year = t->tm_year + TM_YEAR_BASE;
+					yday = t->tm_yday;
+					wday = t->tm_wday;
+					for (;;)
+					  {
+						int len;
+						int bot;
+						int top;
+
+						len = wince__isleap (year) ? DAYSPERLYEAR : DAYSPERNYEAR;
+						/*
+						 ** What yday (-3 ... 3) does
+						 ** the ISO year begin on?
+						 */
+						bot = ((yday + 11 - wday) % DAYSPERWEEK) - 3;
+						/*
+						 ** What yday does the NEXT
+						 ** ISO year begin on?
+						 */
+						top = bot - (len % DAYSPERWEEK);
+						if (top < -3)
+						  top += DAYSPERWEEK;
+						top += len;
+						if (yday >= top)
+						  {
+							++year;
+							w = 1;
+							break;
+						  }
+						if (yday >= bot)
+						  {
+							w = 1 + ((yday - bot) / DAYSPERWEEK);
+							break;
+						  }
+						--year;
+						yday += wince__isleap (year) ? DAYSPERLYEAR : DAYSPERNYEAR;
+					  }
+					if (*format == 'V')
+					  pt = wince__conv (w, "%02d", pt, ptlim);
+					else if (*format == 'g')
+					  {
+						*warnp = IN_ALL;
+						pt = wince__conv (year % 100, "%02d", pt, ptlim);
+					  }
+					else
+					  pt = wince__conv (year, "%04d", pt, ptlim);
+				  }
+				  continue;
+				case 'v':
+				  pt = wince__fmt ("%e-%b-%Y", t, pt, ptlim, warnp);
+				  continue;
+				case 'W':
+				  pt = wince__conv ((t->tm_yday + DAYSPERWEEK -
+							   (t->tm_wday ?
+								(t->tm_wday - 1) :
+								(DAYSPERWEEK - 1))) / DAYSPERWEEK,
+							  "%02d", pt, ptlim);
+				  continue;
+				case 'w':
+				  pt = wince__conv (t->tm_wday, "%d", pt, ptlim);
+				  continue;
+				case 'X':
+				  pt = wince__fmt (Locale->X_fmt, t, pt, ptlim, warnp);
+				  continue;
+				case 'x':
+				  {
+					int warn2 = IN_SOME;
+
+					pt = wince__fmt (Locale->x_fmt, t, pt, ptlim, &warn2);
+					if (warn2 == IN_ALL)
+					  warn2 = IN_THIS;
+					if (warn2 > *warnp)
+					  *warnp = warn2;
+				  }
+				  continue;
+				case 'y':
+				  *warnp = IN_ALL;
+				  pt = wince__conv ((t->tm_year + TM_YEAR_BASE) % 100,
+							  "%02d", pt, ptlim);
+				  continue;
+				case 'Y':
+				  pt = wince__conv (t->tm_year + TM_YEAR_BASE, "%04d", pt, ptlim);
+				  continue;
+				case 'Z':
+				  if (t->tm_isdst >= 0)
+					pt = wince__add (tzname[t->tm_isdst != 0], pt, ptlim);
+				  /*
+				   ** C99 says that %Z must be replaced by the
+				   ** empty string if the time zone is not
+				   ** determinable.
+				   */
+				  continue;
+				case 'z':
+				  {
+					int diff;
+					char const *sign;
+
+					if (t->tm_isdst < 0)
+					  continue;
+					continue;
+					if (diff < 0)
+					  {
+						sign = "-";
+						diff = -diff;
+					  }
+					else
+					  sign = "+";
+					pt = wince__add (sign, pt, ptlim);
+					diff /= 60;
+					pt = wince__conv ((diff / 60) * 100 + diff % 60, "%04d", pt, ptlim);
+				  }
+				  continue;
+				case '+':
+				  pt = wince__fmt (Locale->date_fmt, t, pt, ptlim, warnp);
+				  continue;
+				case '%':
+				default:
+				  break;
+				}
+			}
+		  if (pt == ptlim)
+			break;
+		  *pt++ = *format;
+		}
+	  return pt;
+	}
+
+	size_t
+	wince__strftime (char *const s, const size_t maxsize,
+			  const char *const format, const struct tm * const t)
+	{
+	  char *p;
+	  int warn;
+
+	  warn = IN_NONE;
+	  p = wince__fmt (((format == NULL) ? "%c" : format), t, s, s + maxsize, &warn);
+
+	  if (p == s + maxsize)
+		{
+		  if (maxsize > 0)
+			s[maxsize - 1] = '\0';
+		  return 0;
+		}
+	  *p = '\0';
+	  return p - s;
+	}
+#endif
 
 #ifdef _WIN32
-#ifdef _MSC_VER
-
-#ifdef WINCE
-#include <windows.h>
-#include <time.h>
-
-#define wince__onesec_in100ns 10000000LL
-#define WINCE__DELTA_EPOCH 116444736000000000LL
-#define WINCE__CRT_INLINE 
-
-#define IN_NONE	0
-#define IN_SOME	1
-#define IN_THIS	2
-#define IN_ALL	3
-#define CHAR_BIT      8
-
-#define TYPE_BIT(type)	(sizeof (type) * CHAR_BIT)
-#define TYPE_SIGNED(type) (((type) -1) < 0)
-
-#define INT_STRLEN_MAXIMUM(type) \
-    ((TYPE_BIT(type) - TYPE_SIGNED(type)) * 302 / 1000 + 1 + TYPE_SIGNED(type))
-
-#define wince__isleap(y) (((y) % 4) == 0 && (((y) % 100) != 0 || ((y) % 400) == 0))
-
-#define MONSPERYEAR	12
-#define DAYSPERWEEK	7
-#define TM_YEAR_BASE	1900
-#define HOURSPERDAY	24
-#define DAYSPERNYEAR	365
-#define DAYSPERLYEAR	366
-
-static char wildabbr[] = "WILDABBR";
-
-static char *tzname[2] = 
-{
-  wildabbr,
-  wildabbr
-};
-
-#define Locale	(&C_time_locale)
-
-WINCE__CRT_INLINE long long
-wince__FILETIME_to_ll (const FILETIME *f)
-{
-  long long t;
-  t = (long long)f->dwHighDateTime << 32;
-  t |= f->dwLowDateTime;
-  return t;
-}
-
-
-WINCE__CRT_INLINE void
-wince__ll_to_FILETIME (long long t, FILETIME* f)
-{
-  f->dwHighDateTime = (DWORD)((t >> 32) & 0x00000000FFFFFFFF);
-  f->dwLowDateTime = (DWORD)(t & 0x00000000FFFFFFFF);
-}
-
-struct wince__lc_time_T
-{
-  const char *mon[MONSPERYEAR];
-  const char *month[MONSPERYEAR];
-  const char *wday[DAYSPERWEEK];
-  const char *weekday[DAYSPERWEEK];
-  const char *X_fmt;
-  const char *x_fmt;
-  const char *c_fmt;
-  const char *am;
-  const char *pm;
-  const char *date_fmt;
-};
-
-static const struct wince__lc_time_T C_time_locale = {
-  {
-   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-  }, {
-   "January", "February", "March", "April", "May", "June",
-   "July", "August", "September", "October", "November", "December"
-  }, {
-   "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
-  }, {
-   "Sunday", "Monday", "Tuesday", "Wednesday", 
-   "Thursday", "Friday", "Saturday"
-  },
-
-  /* X_fmt */
-  "%H:%M:%S",
-
-  /*
-   ** x_fmt
-   ** C99 requires this format.
-   ** Using just numbers (as here) makes Quakers happier;
-   ** it's also compatible with SVR4.
-   */
-  "%m/%d/%y",
-
-  /*
-   ** c_fmt
-   ** C99 requires this format.
-   ** Previously this code used "%D %X", but we now conform to C99.
-   ** Note that
-   **      "%a %b %d %H:%M:%S %Y"
-   ** is used by Solaris 2.3.
-   */
-  "%a %b %e %T %Y",
-
-  /* am */
-  "AM",
-
-  /* pm */
-  "PM",
-
-  /* date_fmt */
-  "%a %b %e %H:%M:%S %Z %Y"
-};
-
-
-static char *
-wince__add (const char *str, char *pt, const char *const ptlim)
-{
-  while (pt < ptlim && (*pt = *str++) != '\0')
-    ++pt;
-  return pt;
-}
-
-
-static char *
-wince__conv (const int n, const char *const format, char *const pt,
-       const char *const ptlim)
-{
-  char buf[INT_STRLEN_MAXIMUM (int) + 1];
-
-  (void) _snprintf (buf, sizeof (buf), format, n);
-  return wince__add (buf, pt, ptlim);
-}
-
-
-#define O_RDONLY       0x0000  /* open for reading only */
-#define O_WRONLY       0x0001  /* open for writing only */
-#define O_RDWR         0x0002  /* open for reading and writing */
-#define O_APPEND       0x0008  /* writes done at eof */
-
-
-time_t wince__ftToTime_t( const FILETIME ft )
-{
-    ULARGE_INTEGER li;
-    li.LowPart  = ft.dwLowDateTime;
-    li.HighPart = ft.dwHighDateTime;
- 
-    // 100-nanosec to seconds
-    li.QuadPart /= 10000000;
- 
-    // FILETIME is from 1601-01-01 T 00:00:00
-    // time_t   is from 1970-01-01 T 00:00:00
-    // 1970 - 1601 = 369 year (89 leap years)
-    //
-    // ((369y*365d) + 89d) *24h *60min *60sec
-    // = 11644473600 seconds
-    li.QuadPart -= 11644473600;
-    return li.LowPart;
-}
-int wince__fstat( const wchar_t * _Name, struct stat *buffer)
-{
-   BY_HANDLE_FILE_INFORMATION fInfo;
-   BOOL res;
-
-   HANDLE handle = CreateFileW(_Name, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS, NULL);
-   if(handle == INVALID_HANDLE_VALUE)
-   {
-      DWORD errNr = GetLastError();
-      return 1;
-   }
-   
-   res = GetFileInformationByHandle((HANDLE)handle, &fInfo);
-   CloseHandle(handle);
-
-   buffer->st_ctime = wince__ftToTime_t( fInfo.ftCreationTime );
-   buffer->st_atime = wince__ftToTime_t( fInfo.ftLastAccessTime );
-   buffer->st_mtime = wince__ftToTime_t( fInfo.ftLastWriteTime );
-   buffer->st_nlink = 0;
-   buffer->st_size  = fInfo.nFileSizeLow; // ### missing high!
-   buffer->st_mode  = (fInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? _S_IFDIR : _S_IFREG;
-   buffer->st_mode |= (fInfo.dwFileAttributes & FILE_ATTRIBUTE_READONLY) ? O_RDONLY : O_RDWR;
-   
-   return res == 0;
-}
-
-void
-wince__tm_to_SYSTEMTIME (struct tm *t, SYSTEMTIME *s)
-{
-  s->wYear = t->tm_year + 1900;
-  s->wMonth = t->tm_mon  + 1;
-  s->wDayOfWeek = t->tm_wday;
-  s->wDay = t->tm_mday;
-  s->wHour = t->tm_hour;
-  s->wMinute = t->tm_min;
-  s->wSecond = t->tm_sec;
-  s->wMilliseconds = 0;
-}
-
-static void
-wince__FILETIME_from_Year (WORD year, FILETIME *f)
-{
-  SYSTEMTIME s = {0};
-
-  s.wYear = year;
-  s.wMonth = 1;
-  s.wDayOfWeek = 1;
-  s.wDay = 1;
-
-  SystemTimeToFileTime (&s, f);
-}
-
-static int
-wince__Yday_from_SYSTEMTIME (const SYSTEMTIME *s)
-{
-  long long t;
-  FILETIME f1, f2;
-
-  wince__FILETIME_from_Year (s->wYear, &f1);
-  SystemTimeToFileTime (s, &f2);
-
-  t = wince__FILETIME_to_ll (&f2) - wince__FILETIME_to_ll (&f1);
-
-  return ((t / wince__onesec_in100ns) / (60 * 60 * 24));
-}
-
-void
-wince__SYSTEMTIME_to_tm (SYSTEMTIME *s, struct tm *tm)
-{
-  tm->tm_year = s->wYear - 1900;
-  tm->tm_mon = s->wMonth- 1;
-  tm->tm_wday = s->wDayOfWeek;
-  tm->tm_mday = s->wDay;
-  tm->tm_yday = wince__Yday_from_SYSTEMTIME (s);
-  tm->tm_hour = s->wHour;
-  tm->tm_min = s->wMinute;
-  tm->tm_sec = s->wSecond;
-  tm->tm_isdst = 0;
-}
-
-time_t
-wince__FILETIME_to_time_t (const FILETIME* f)
-{
-  long long t;
-  t = wince__FILETIME_to_ll (f);
-  t -= WINCE__DELTA_EPOCH;
-  return (time_t)(t / wince__onesec_in100ns);
-}
-
-void
-wince__time_t_to_FILETIME (time_t t, FILETIME *f)
-{
-  long long time;
-
-  time = t;
-  time *= wince__onesec_in100ns;
-  time += WINCE__DELTA_EPOCH;
-
-  wince__ll_to_FILETIME (time, f);
-}
-
-time_t
-wince__mktime (struct tm *pt)
-{
-  SYSTEMTIME ss, ls, s;
-  FILETIME sf, lf, f;
-  long long diff;
-
-  GetSystemTime (&ss);
-  GetLocalTime (&ls);
-  SystemTimeToFileTime (&ss, &sf);
-  SystemTimeToFileTime (&ls, &lf);
-
-  diff = wince__FILETIME_to_ll (&lf) - wince__FILETIME_to_ll (&sf);
-  diff /= wince__onesec_in100ns;
-
-  wince__tm_to_SYSTEMTIME (pt, &s);
-  SystemTimeToFileTime (&s, &f);
-  return wince__FILETIME_to_time_t (&f) - (time_t)diff;
-}
-
-struct tm *
-wince__localtime(const time_t *timer)
-{
-  SYSTEMTIME ss, ls, s;
-  FILETIME sf, lf, f;
-  long long t, diff;
-
-  static struct tm tms;
-
-  GetSystemTime (&ss);
-  GetLocalTime (&ls);
-
-  SystemTimeToFileTime (&ss, &sf);
-  SystemTimeToFileTime (&ls, &lf);
-
-  diff = wince__FILETIME_to_ll (&sf) - wince__FILETIME_to_ll (&lf);
-
-  wince__time_t_to_FILETIME (*timer, &f);
-  t = wince__FILETIME_to_ll (&f) - diff;
-  wince__ll_to_FILETIME (t, &f);
-  FileTimeToSystemTime (&f, &s);
-  wince__SYSTEMTIME_to_tm (&s, &tms);
-
-  return &tms;
-}
-
-static char *
-wince__fmt (const char *format, const struct tm *const t, char *pt,
-      const char *const ptlim, int *warnp)
-{
-  for (; *format; ++format)
-    {
-      if (*format == '%')
-        {
-        label:
-          switch (*++format)
-            {
-            case '\0':
-              --format;
-              break;
-            case 'A':
-              pt = wince__add ((t->tm_wday < 0 ||
-                          t->tm_wday >= DAYSPERWEEK) ?
-                         "?" : Locale->weekday[t->tm_wday], pt, ptlim);
-              continue;
-            case 'a':
-              pt = wince__add ((t->tm_wday < 0 ||
-                          t->tm_wday >= DAYSPERWEEK) ?
-                         "?" : Locale->wday[t->tm_wday], pt, ptlim);
-              continue;
-            case 'B':
-              pt = wince__add ((t->tm_mon < 0 ||
-                          t->tm_mon >= MONSPERYEAR) ?
-                         "?" : Locale->month[t->tm_mon], pt, ptlim);
-              continue;
-            case 'b':
-            case 'h':
-              pt = wince__add ((t->tm_mon < 0 ||
-                          t->tm_mon >= MONSPERYEAR) ?
-                         "?" : Locale->mon[t->tm_mon], pt, ptlim);
-              continue;
-            case 'C':
-              /*
-               ** %C used to do a...
-               **     wince__fmt("%a %b %e %X %Y", t);
-               ** ...whereas now POSIX 1003.2 calls for
-               ** something completely different.
-               ** (ado, 1993-05-24)
-               */
-              pt = wince__conv ((t->tm_year + TM_YEAR_BASE) / 100,
-                          "%02d", pt, ptlim);
-              continue;
-            case 'c':
-              {
-                int warn2 = IN_SOME;
-
-                pt = wince__fmt (Locale->c_fmt, t, pt, ptlim, warnp);
-                if (warn2 == IN_ALL)
-                  warn2 = IN_THIS;
-                if (warn2 > *warnp)
-                  *warnp = warn2;
-              }
-              continue;
-            case 'D':
-              pt = wince__fmt ("%m/%d/%y", t, pt, ptlim, warnp);
-              continue;
-            case 'd':
-              pt = wince__conv (t->tm_mday, "%02d", pt, ptlim);
-              continue;
-            case 'E':
-            case 'O':
-              /*
-               ** C99 locale modifiers.
-               ** The sequences
-               **     %Ec %EC %Ex %EX %Ey %EY
-               **     %Od %oe %OH %OI %Om %OM
-               **     %OS %Ou %OU %OV %Ow %OW %Oy
-               ** are supposed to provide alternate
-               ** representations.
-               */
-              goto label;
-            case 'e':
-              pt = wince__conv (t->tm_mday, "%2d", pt, ptlim);
-              continue;
-            case 'F':
-              pt = wince__fmt ("%Y-%m-%d", t, pt, ptlim, warnp);
-              continue;
-            case 'H':
-              pt = wince__conv (t->tm_hour, "%02d", pt, ptlim);
-              continue;
-            case 'I':
-              pt = wince__conv ((t->tm_hour % 12) ?
-                          (t->tm_hour % 12) : 12, "%02d", pt, ptlim);
-              continue;
-            case 'j':
-              pt = wince__conv (t->tm_yday + 1, "%03d", pt, ptlim);
-              continue;
-            case 'k':
-              /*
-               ** This used to be...
-               **     wince__conv(t->tm_hour % 12 ?
-               **             t->tm_hour % 12 : 12, 2, ' ');
-               ** ...and has been changed to the below to
-               ** match SunOS 4.1.1 and Arnold Robbins'
-               ** strftime version 3.0.  That is, "%k" and
-               ** "%l" have been swapped.
-               ** (ado, 1993-05-24)
-               */
-              pt = wince__conv (t->tm_hour, "%2d", pt, ptlim);
-              continue;
-#ifdef KITCHEN_SINK
-            case 'K':
-              /*
-               ** After all this time, still unclaimed!
-               */
-              pt = wince__add ("kitchen sink", pt, ptlim);
-              continue;
-#endif /* defined KITCHEN_SINK */
-            case 'l':
-              /*
-               ** This used to be...
-               **     wince__conv(t->tm_hour, 2, ' ');
-               ** ...and has been changed to the below to
-               ** match SunOS 4.1.1 and Arnold Robbin's
-               ** strftime version 3.0.  That is, "%k" and
-               ** "%l" have been swapped.
-               ** (ado, 1993-05-24)
-               */
-              pt = wince__conv ((t->tm_hour % 12) ?
-                          (t->tm_hour % 12) : 12, "%2d", pt, ptlim);
-              continue;
-            case 'M':
-              pt = wince__conv (t->tm_min, "%02d", pt, ptlim);
-              continue;
-            case 'm':
-              pt = wince__conv (t->tm_mon + 1, "%02d", pt, ptlim);
-              continue;
-            case 'n':
-              pt = wince__add ("\n", pt, ptlim);
-              continue;
-            case 'p':
-              pt = wince__add ((t->tm_hour >= (HOURSPERDAY / 2)) ?
-                         Locale->pm : Locale->am, pt, ptlim);
-              continue;
-            case 'R':
-              pt = wince__fmt ("%H:%M", t, pt, ptlim, warnp);
-              continue;
-            case 'r':
-              pt = wince__fmt ("%I:%M:%S %p", t, pt, ptlim, warnp);
-              continue;
-            case 'S':
-              pt = wince__conv (t->tm_sec, "%02d", pt, ptlim);
-              continue;
-            case 's':
-              {
-                struct tm tm;
-                char buf[INT_STRLEN_MAXIMUM (time_t) + 1];
-                time_t mkt;
-
-                tm = *t;
-
-				mkt = wince__mktime (&tm);				 
-
-                if (TYPE_SIGNED (time_t))
-                  (void) _snprintf (buf, sizeof buf, "%ld", (long) mkt);
-                else
-                  (void) _snprintf (buf, sizeof buf,
-                                    "%lu", (unsigned long) mkt);
-                pt = wince__add (buf, pt, ptlim);
-              }
-              continue;
-            case 'T':
-              pt = wince__fmt ("%H:%M:%S", t, pt, ptlim, warnp);
-              continue;
-            case 't':
-              pt = wince__add ("\t", pt, ptlim);
-              continue;
-            case 'U':
-              pt = wince__conv ((t->tm_yday + DAYSPERWEEK -
-                           t->tm_wday) / DAYSPERWEEK, "%02d", pt, ptlim);
-              continue;
-            case 'u':
-              /*
-               ** From Arnold Robbins' strftime version 3.0:
-               ** "ISO 8601: Weekday as a decimal number
-               ** [1 (Monday) - 7]"
-               ** (ado, 1993-05-24)
-               */
-              pt = wince__conv ((t->tm_wday == 0) ?
-                          DAYSPERWEEK : t->tm_wday, "%d", pt, ptlim);
-              continue;
-            case 'V':          /* ISO 8601 week number */
-            case 'G':          /* ISO 8601 year (four digits) */
-            case 'g':          /* ISO 8601 year (two digits) */
-              {
-                int year;
-                int yday;
-                int wday;
-                int w;
-
-                year = t->tm_year + TM_YEAR_BASE;
-                yday = t->tm_yday;
-                wday = t->tm_wday;
-                for (;;)
-                  {
-                    int len;
-                    int bot;
-                    int top;
-
-                    len = wince__isleap (year) ? DAYSPERLYEAR : DAYSPERNYEAR;
-                    /*
-                     ** What yday (-3 ... 3) does
-                     ** the ISO year begin on?
-                     */
-                    bot = ((yday + 11 - wday) % DAYSPERWEEK) - 3;
-                    /*
-                     ** What yday does the NEXT
-                     ** ISO year begin on?
-                     */
-                    top = bot - (len % DAYSPERWEEK);
-                    if (top < -3)
-                      top += DAYSPERWEEK;
-                    top += len;
-                    if (yday >= top)
-                      {
-                        ++year;
-                        w = 1;
-                        break;
-                      }
-                    if (yday >= bot)
-                      {
-                        w = 1 + ((yday - bot) / DAYSPERWEEK);
-                        break;
-                      }
-                    --year;
-                    yday += wince__isleap (year) ? DAYSPERLYEAR : DAYSPERNYEAR;
-                  }
-                if (*format == 'V')
-                  pt = wince__conv (w, "%02d", pt, ptlim);
-                else if (*format == 'g')
-                  {
-                    *warnp = IN_ALL;
-                    pt = wince__conv (year % 100, "%02d", pt, ptlim);
-                  }
-                else
-                  pt = wince__conv (year, "%04d", pt, ptlim);
-              }
-              continue;
-            case 'v':
-              pt = wince__fmt ("%e-%b-%Y", t, pt, ptlim, warnp);
-              continue;
-            case 'W':
-              pt = wince__conv ((t->tm_yday + DAYSPERWEEK -
-                           (t->tm_wday ?
-                            (t->tm_wday - 1) :
-                            (DAYSPERWEEK - 1))) / DAYSPERWEEK,
-                          "%02d", pt, ptlim);
-              continue;
-            case 'w':
-              pt = wince__conv (t->tm_wday, "%d", pt, ptlim);
-              continue;
-            case 'X':
-              pt = wince__fmt (Locale->X_fmt, t, pt, ptlim, warnp);
-              continue;
-            case 'x':
-              {
-                int warn2 = IN_SOME;
-
-                pt = wince__fmt (Locale->x_fmt, t, pt, ptlim, &warn2);
-                if (warn2 == IN_ALL)
-                  warn2 = IN_THIS;
-                if (warn2 > *warnp)
-                  *warnp = warn2;
-              }
-              continue;
-            case 'y':
-              *warnp = IN_ALL;
-              pt = wince__conv ((t->tm_year + TM_YEAR_BASE) % 100,
-                          "%02d", pt, ptlim);
-              continue;
-            case 'Y':
-              pt = wince__conv (t->tm_year + TM_YEAR_BASE, "%04d", pt, ptlim);
-              continue;
-            case 'Z':
-              if (t->tm_isdst >= 0)
-                pt = wince__add (tzname[t->tm_isdst != 0], pt, ptlim);
-              /*
-               ** C99 says that %Z must be replaced by the
-               ** empty string if the time zone is not
-               ** determinable.
-               */
-              continue;
-            case 'z':
-              {
-                int diff;
-                char const *sign;
-
-                if (t->tm_isdst < 0)
-                  continue;
-                continue;
-                if (diff < 0)
-                  {
-                    sign = "-";
-                    diff = -diff;
-                  }
-                else
-                  sign = "+";
-                pt = wince__add (sign, pt, ptlim);
-                diff /= 60;
-                pt = wince__conv ((diff / 60) * 100 + diff % 60, "%04d", pt, ptlim);
-              }
-              continue;
-            case '+':
-              pt = wince__fmt (Locale->date_fmt, t, pt, ptlim, warnp);
-              continue;
-            case '%':
-            default:
-              break;
-            }
-        }
-      if (pt == ptlim)
-        break;
-      *pt++ = *format;
-    }
-  return pt;
-}
-
-size_t
-wince__strftime (char *const s, const size_t maxsize,
-          const char *const format, const struct tm * const t)
-{
-  char *p;
-  int warn;
-
-  warn = IN_NONE;
-  p = wince__fmt (((format == NULL) ? "%c" : format), t, s, s + maxsize, &warn);
-
-  if (p == s + maxsize)
-    {
-      if (maxsize > 0)
-        s[maxsize - 1] = '\0';
-      return 0;
-    }
-  *p = '\0';
-  return p - s;
-}
-
-#endif
-
-
-
-#ifdef WINCE
-#pragma comment(lib, "Ws2.lib")
+	#ifdef _MSC_VER
+		#ifdef WINCE
+			#pragma comment(lib, "Ws2.lib")
+		#else
+			#pragma comment(lib, "Ws2_32.lib")
+		#endif
+	#endif
+
+	#include <Winsock2.h>
+	#include <windows.h>	
+	//#if !defined(_WIN32) || !defined(WINCE) 
+	time_t time(time_t *ptime);
+	//#endif
+
+	#define _O_RDONLY       0x0000  /* open for reading only */
+	#define _O_BINARY       0x8000  /* file mode is binary (untranslated) */
+
+	#define O_RDONLY        _O_RDONLY
+	#define O_BINARY        _O_BINARY
+
+	#ifndef _WIN32_WCE
+		#include <process.h>
+	#endif // !_WIN32_WCE
+	#ifndef EINPROGRESS
+		#define EINPROGRESS WSAEINPROGRESS
+	#endif
+	#ifndef EWOULDBLOCK
+		#define EWOULDBLOCK WSAEWOULDBLOCK
+	#endif
+	#ifndef __func__
+		#define STRX(x) #x
+		#define STR(x) STRX(x)
+		#define __func__ __FILE__ ":" STR(__LINE__)
+	#endif
+	#ifndef va_copy
+		#define va_copy(x,y) x = y
+	#endif // MINGW #defines va_copy
+
+	#define snprintf _snprintf
+	#define vsnprintf _vsnprintf
+	#define sleep(x) Sleep((x) * 1000)
+	#define to64(x) _atoi64(x)
+	typedef int socklen_t;
+	typedef unsigned char uint8_t;
+	typedef unsigned int uint32_t;
+	typedef unsigned short uint16_t;
+	typedef unsigned __int64 uint64_t;
+	typedef __int64   int64_t;
+	typedef SOCKET sock_t;
 #else
-#pragma comment(lib, "Ws2_32.lib")
+	#include <errno.h>
+	#include <fcntl.h>
+	#include <netdb.h>
+	#include <pthread.h>
+	#include <stdarg.h>
+	#include <unistd.h>
+	#include <arpa/inet.h>  // For inet_pton() when NS_ENABLE_IPV6 is defined
+	#include <netinet/in.h>
+	#include <sys/socket.h>
+	#include <sys/select.h>
+	#define closesocket(x) close(x)
+	#define __cdecl
+	#define INVALID_SOCKET (-1)
+	#define to64(x) strtoll(x, NULL, 10)
+	typedef int sock_t;
 #endif
 
+#ifdef WINCE 
+	time_t wince__time(time_t *ptime)
+	{
+	   time_t t;
+	   SYSTEMTIME st;
+	   FILETIME ft;
+
+	   GetSystemTime(&st);
+	   SystemTimeToFileTime(&st, &ft);
+	   t = (time_t)((MAKEUQUAD(ft.dwLowDateTime, ft.dwHighDateTime) - EPOCH_DIFF) / RATE_DIFF);
+
+	   if(ptime != NULL) 
+	   {
+		  *ptime = t;
+	   }
+	   return t;
+	}
 #endif
 
-#include <windows.h>
-#include <Winsock2.h>
+#if defined(_WIN32_WCE) || defined(WINCE)
+	int wince__read(int fd, void *buffer, unsigned count);
 
-time_t wince__time(time_t *ptime);
-
-#define _O_RDONLY       0x0000  /* open for reading only */
-#define _O_BINARY       0x8000  /* file mode is binary (untranslated) */
-
-#define O_RDONLY        _O_RDONLY
-#define O_BINARY        _O_BINARY
-
-#ifndef _WIN32_WCE
-#include <process.h>
-#endif // !_WIN32_WCE
-#ifndef EINPROGRESS
-#define EINPROGRESS WSAEINPROGRESS
-#endif
-#ifndef EWOULDBLOCK
-#define EWOULDBLOCK WSAEWOULDBLOCK
-#endif
-#ifndef __func__
-#define STRX(x) #x
-#define STR(x) STRX(x)
-#define __func__ __FILE__ ":" STR(__LINE__)
-#endif
-#ifndef va_copy
-#define va_copy(x,y) x = y
-#endif // MINGW #defines va_copy
-#define snprintf _snprintf
-#define vsnprintf _vsnprintf
-#define sleep(x) Sleep((x) * 1000)
-#define to64(x) _atoi64(x)
-typedef int socklen_t;
-typedef unsigned char uint8_t;
-typedef unsigned int uint32_t;
-typedef unsigned short uint16_t;
-typedef unsigned __int64 uint64_t;
-typedef __int64   int64_t;
-typedef SOCKET sock_t;
+	#define rename(x, y) wince__rename((x), (y))
+	#define read(x, y, z) wince__read((x), (y), (unsigned) (z))
+	#define time(x) wince__time((x))
+	#define strftime(x, y, z, a) wince__strftime((x), (y), (z), (a))
+	#define localtime(x) wince__localtime((x))
+	#define gmtime(x) wince__gmtime((x))
 #else
-#include <errno.h>
-#include <fcntl.h>
-#include <netdb.h>
-#include <pthread.h>
-#include <stdarg.h>
-#include <unistd.h>
-#include <arpa/inet.h>  // For inet_pton() when NS_ENABLE_IPV6 is defined
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <sys/select.h>
-#define closesocket(x) close(x)
-#define __cdecl
-#define INVALID_SOCKET (-1)
-#define to64(x) strtoll(x, NULL, 10)
-typedef int sock_t;
+	#define read(x, y, z) _read((x), (y), (unsigned) z)
 #endif
 
 #define FILENAME_MAX MAX_PATH
 
 #ifndef PATH_MAX
-#define PATH_MAX MAX_PATH
+	#define PATH_MAX MAX_PATH
 #endif
 
 #define HANDLE_FLAG_INHERIT 1
 
-#ifdef _WIN32_WCE
-
-#define EINTR           4
-#define EAGAIN          11
-
-#define NO_CGI // WinCE has no pipes
-
-typedef long off_t;
-
-#define errno   GetLastError()
-#define strerror(x)  _ultoa(x, (char *) _alloca(sizeof(x) *3 ), 10)
-
-#define MAKEUQUAD(lo, hi) ((uint64_t)(((uint32_t)(lo)) | \
-      ((uint64_t)((uint32_t)(hi))) << 32))
-#define RATE_DIFF 10000000 // 100 nsecs
-#define EPOCH_DIFF MAKEUQUAD(0xd53e8000, 0x019db1de)
-#define SYS2UNIX_TIME(lo, hi) \
-  (time_t) ((MAKEUQUAD((lo), (hi)) - EPOCH_DIFF) / RATE_DIFF)
-
-#endif // _WIN32_WCE
 
 #ifdef NS_ENABLE_DEBUG
-#define DBG(x) do { printf("%-20s ", __func__); printf x; putchar('\n'); \
-  fflush(stdout); } while(0)
+	#define DBG(x) do { printf("%-20s ", __func__); printf x; putchar('\n'); \
+	  fflush(stdout); } while(0)
 #else
-#define DBG(x)
+	#define DBG(x)
 #endif
 
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof(array[0]))
 
 #ifdef NS_ENABLE_SSL
-#ifdef __APPLE__
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#endif
-#include <openssl/ssl.h>
+	#ifdef __APPLE__
+		#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+	#endif
+	#include <openssl/ssl.h>
 #else
-typedef void *SSL;
-typedef void *SSL_CTX;
+	typedef void *SSL;
+	typedef void *SSL_CTX;
 #endif
 
 #ifdef __cplusplus
-extern "C" {
+	extern "C" {
 #endif // __cplusplus
 
 union socket_address {
@@ -1566,7 +1593,8 @@ int ns_server_poll(struct ns_server *server, int milli) {
   fd_set read_set, write_set;
   int num_active_connections = 0;
   sock_t max_fd = INVALID_SOCKET;
-  time_t current_time = wince__time(NULL);
+
+  time_t current_time = time(NULL);
 
   if (server->listening_sock == INVALID_SOCKET &&
       server->active_connections == NULL) return 0;
@@ -1600,8 +1628,7 @@ int ns_server_poll(struct ns_server *server, int milli) {
   if (select((int) max_fd + 1, &read_set, &write_set, NULL, &tv) > 0) {
     // select() might have been waiting for a long time, reset current_time
     // now to prevent last_io_time being set to the past.
-    current_time = wince__time(NULL);
-    
+	current_time = time(NULL);   
     // Accept new connections
     if (server->listening_sock != INVALID_SOCKET &&
         FD_ISSET(server->listening_sock, &read_set)) {
@@ -1689,7 +1716,7 @@ struct ns_connection *ns_connect(struct ns_server *server, const char *host,
   conn->sock = sock;
   conn->connection_data = param;
   conn->flags = NSF_CONNECTING;
-  conn->last_io_time = wince__time(NULL);
+  conn->last_io_time = time(NULL);
 
 #ifdef NS_ENABLE_SSL
   if (use_ssl &&
@@ -1712,7 +1739,7 @@ struct ns_connection *ns_add_sock(struct ns_server *s, sock_t sock, void *p) {
     conn->sock = sock;
     conn->connection_data = p;
     conn->server = s;
-    conn->last_io_time = wince__time(NULL);
+    conn->last_io_time = time(NULL);
     ns_add_conn(s, conn);
     DBG(("%p %d", conn, sock));
   }
@@ -1866,22 +1893,6 @@ typedef pid_t process_id_t;
 #else
 #define fseeko(x, y, z) fseek(_fileno(x), (y), (z))
 #endif
-
-
-#if defined(_WIN32_WCE) || defined(WINCE)
-int wince__read(int fd, void *buffer, unsigned count);
-
-
-#define rename(x, y) wince__rename((x), (y))
-#define read(x, y, z) wince__read((x), (y), (unsigned) (z))
-#define time(x) wince__time((x))
-#define strftime(x, y, z, a) wince__strftime((x), (y), (z), (a))
-#define localtime(x) wince__localtime((x))
-
-#else
-#define read(x, y, z) _read((x), (y), (unsigned) z)
-#endif
-
 
 #include "mongoose.h"
 
@@ -3714,8 +3725,9 @@ static int parse_range_header(const char *header, int64_t *a, int64_t *b) {
   return sscanf(header, "bytes=%" INT64_FMT "-%" INT64_FMT, a, b);
 }
 
+#ifdef WINCE
 struct tm *
-gmtime(const time_t *t)
+wince__gmtime(const time_t *t)
 {
   FILETIME f;
   SYSTEMTIME s;
@@ -3726,9 +3738,10 @@ gmtime(const time_t *t)
   wince__SYSTEMTIME_to_tm (&s, &tms);
   return &tms;
 }
+#endif
 
 static void gmt_time_string(char *buf, size_t buf_len, time_t *t) {
-  wince__strftime(buf, buf_len, "%a, %d %b %Y %H:%M:%S GMT", gmtime(t));
+  strftime(buf, buf_len, "%a, %d %b %Y %H:%M:%S GMT", gmtime(t));
 }
 
 static void open_file_endpoint(struct connection *conn, const char *path,
@@ -5887,22 +5900,5 @@ int wince__read(int fd, void *buffer, unsigned count)
 {
   DWORD dwRead = fread(buffer, sizeof(char), count, (FILE*)fd);
   return (int)dwRead;
-}
-
-time_t wince__time(time_t *ptime)
-{
-   time_t t;
-   SYSTEMTIME st;
-   FILETIME ft;
-
-   GetSystemTime(&st);
-   SystemTimeToFileTime(&st, &ft);
-   t = (time_t)((MAKEUQUAD(ft.dwLowDateTime, ft.dwHighDateTime) - EPOCH_DIFF) / RATE_DIFF);
-
-   if(ptime != NULL) 
-   {
-      *ptime = t;
-   }
-   return t;
 }
 #endif
