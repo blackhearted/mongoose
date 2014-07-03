@@ -60,21 +60,22 @@
 #ifndef _WIN32_WCE // Some ANSI #includes are not available on Windows CE
 	#include <sys/types.h>
 	#include <sys/stat.h>
+	#include <assert.h>
 #else
 	#include "stat.h"
-	#endif // !_WIN32_WCE
-	#include <assert.h>
-	#ifndef _WIN32_WCE // Some ANSI #includes are not available on Windows CE
+#endif // !_WIN32_WCE
+#include <assert.h>
+#ifndef _WIN32_WCE // Some ANSI #includes are not available on Windows CE
 	#include <errno.h>
 	#include <fcntl.h>
-	#endif // !_WIN32_WCE
-	#include <stdarg.h>
-	#include <stddef.h>
-	#include <stdio.h>
-	#include <stdlib.h>
-	#include <string.h>
-	#include <time.h>
-	#ifndef _WIN32_WCE // Some ANSI #includes are not available on Windows CE
+#endif // !_WIN32_WCE
+#include <stdarg.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#ifndef _WIN32_WCE // Some ANSI #includes are not available on Windows CE
 	#include <signal.h>
 #endif // !_WIN32_WCE
 
@@ -753,9 +754,10 @@
 			#pragma comment(lib, "Ws2_32.lib")
 		#endif
 	#endif
-
+	
 	#include <Winsock2.h>
 	#include <windows.h>	
+	
 	//#if !defined(_WIN32) || !defined(WINCE) 
 	time_t time(time_t *ptime);
 	//#endif
@@ -795,6 +797,7 @@
 	typedef unsigned __int64 uint64_t;
 	typedef __int64   int64_t;
 	typedef SOCKET sock_t;
+
 #else
 	#include <errno.h>
 	#include <fcntl.h>
@@ -842,7 +845,7 @@
 	#define localtime(x) wince__localtime((x))
 	#define gmtime(x) wince__gmtime((x))
 #else
-	#define read(x, y, z) _read((x), (y), (unsigned) z)
+	//#define read(x, y, z) _read((x), (y), (unsigned) z)
 #endif
 
 #define FILENAME_MAX MAX_PATH
@@ -1832,6 +1835,10 @@ void ns_server_free(struct ns_server *s) {
 #include <ctype.h>
 
 #if defined(_WIN32) || defined(WINCE)        //////////////// Windows specific defines and includes
+#ifndef WINCE
+	#include <io.h>       // For _lseeki64
+	#include <direct.h>   // For _mkdir
+#endif
 #ifndef S_ISDIR
 #define S_ISDIR(x) ((x) & _S_IFDIR)
 #endif
